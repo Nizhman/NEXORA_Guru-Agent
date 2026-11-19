@@ -1,0 +1,24 @@
+# Secrets & Credentials
+.env
+backend/.env
+frontend/.env*
+backend/credentials/*.json
+credentials/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
