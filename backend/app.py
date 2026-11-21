@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 import spaces
+import uvicorn
 
 os.environ["GRADIO_SSR_MODE"] = "false"
 
@@ -25,3 +26,6 @@ with gr.Blocks(title="NEXORA Guru Agent API") as demo:
     probe_btn.click(fn=gpu_health_probe, outputs=status_out)
 
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7860)
