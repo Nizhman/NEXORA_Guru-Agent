@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import List, Dict, Any
@@ -23,18 +24,33 @@ def _get_live_env(key: str, default: str = "") -> str:
     return os.getenv(key, default).strip()
 
 
-def get_credentials():
-    """Mengambil kredensial service account secara dinamis."""
+def get_credentials() -> Credentials:
+    """
+    Mengambil kredensial service account secara dinamis:
+    1. Prioritas utama: JSON string dari Secret/Env `GOOGLE_SERVICE_ACCOUNT_JSON` (untuk Hugging Face Space).
+    2. Fallback: File path dari `GOOGLE_SERVICE_ACCOUNT_FILE` (untuk pengembangan lokal).
+    """
+    raw_json = _get_live_env("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if raw_json:
+        try:
+            service_account_info = json.loads(raw_json)
+            return Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Format JSON pada GOOGLE_SERVICE_ACCOUNT_JSON tidak valid: {str(e)}")
+
     default_creds_path = str(ENV_PATH.parent / "credentials" / "google_service_account.json")
     creds_path = _get_live_env("GOOGLE_SERVICE_ACCOUNT_FILE", default_creds_path)
-    
+
     # Jika path relatif terhadap root backend
     if not os.path.isabs(creds_path):
         creds_path = str(ENV_PATH.parent / creds_path)
 
     if not os.path.exists(creds_path):
-        raise FileNotFoundError(f"File kredensial tidak ditemukan di path: {creds_path}")
-    
+        raise FileNotFoundError(
+            f"Kredensial Google Service Account tidak ditemukan. Pastikan Secret "
+            f"'GOOGLE_SERVICE_ACCOUNT_JSON' sudah diisi di Hugging Face Space atau file tersedia di: {creds_path}"
+        )
+
     return Credentials.from_service_account_file(creds_path, scopes=SCOPES)
 
 
@@ -44,7 +60,7 @@ def get_gspread_client() -> gspread.Client:
 
 
 def create_recap_sheet(title: str, headers: List[str]) -> Dict[str, str]:
-    """Mengambil rujukan Google Sheet Master yang dikonfigurasi di .env secara dinamis."""
+    """Mengambil rujukan Google Sheet Master yang dikonfigurasi di .env atau Secrets secara dinamis."""
     try:
         sheet_id_raw = _get_live_env("GOOGLE_SHEET_TEMPLATE_ID")
         sheet_id = sheet_id_raw.split("/d/")[1].split("/")[0] if "/d/" in sheet_id_raw else sheet_id_raw
@@ -72,7 +88,7 @@ def append_student_scores(spreadsheet_id: str, rows: List[List[Any]]) -> bool:
 
         # Ambil seluruh baris data yang ada di sheet saat ini
         all_rows = worksheet.get_all_values()
-        
+
         # Buat pemetaan Nama Siswa -> Nomor Baris (Case-insensitive & Trimmed)
         name_to_row_map = {}
         for index, row in enumerate(all_rows, start=1):
@@ -89,7 +105,7 @@ def append_student_scores(spreadsheet_id: str, rows: List[List[Any]]) -> bool:
             if clean_student_name in name_to_row_map:
                 row_idx = name_to_row_map[clean_student_name]
                 row_values = worksheet.row_values(row_idx)
-                
+
                 # Masukkan nilai di kolom kosong paling kanan
                 next_col_idx = len(row_values) + 1
                 worksheet.update_cell(row_idx, next_col_idx, score)
@@ -98,7 +114,7 @@ def append_student_scores(spreadsheet_id: str, rows: List[List[Any]]) -> bool:
             else:
                 new_row = [student_name, score]
                 worksheet.append_row(new_row)
-                
+
                 # Catat baris baru ke map lokal
                 name_to_row_map[clean_student_name] = len(worksheet.get_all_values())
 
