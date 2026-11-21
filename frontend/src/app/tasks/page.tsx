@@ -6,7 +6,18 @@ import TaskStats from "@/components/tasks/TaskStats";
 import TaskCard from "@/components/tasks/TaskCard";
 import CreateTaskModal from "../../components/tasks/CreateTaskModal";
 import UnsubmittedModal from "../../components/tasks/UnsubmittedModal";
-import { Plus, Search, BookOpen, CheckCircle2, Users, Loader2, RefreshCw, Cpu, LogIn, AlertCircle } from "lucide-react";
+import {
+  Plus,
+  Search,
+  BookOpen,
+  CheckCircle2,
+  Users,
+  Loader2,
+  RefreshCw,
+  Cpu,
+  LogIn,
+  AlertCircle,
+} from "lucide-react";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
@@ -41,6 +52,7 @@ export default function TasksPage() {
   const [isLoadingUnsubmitted, setIsLoadingUnsubmitted] = useState<string | null>(null);
   const [isConnectedToClassroom, setIsConnectedToClassroom] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const [aiMeta, setAiMeta] = useState<{
@@ -80,6 +92,8 @@ export default function TasksPage() {
   const syncClassroomData = useCallback(async (token: string) => {
     setIsLoadingTasks(true);
     setHasAuthError(false);
+    setSyncErrorMessage(null);
+
     try {
       const [coursesRes, courseworkRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/classroom/courses`, {
@@ -103,6 +117,13 @@ export default function TasksPage() {
         return;
       }
 
+      if (!coursesRes.ok || !courseworkRes.ok) {
+        const failedStatus = !coursesRes.ok ? coursesRes.status : courseworkRes.status;
+        setSyncErrorMessage(
+          `Gagal memuat data Classroom (HTTP ${failedStatus}). Periksa koneksi atau konfigurasi backend.`
+        );
+      }
+
       if (coursesRes.ok) {
         const coursesData = await coursesRes.json().catch(() => ({}));
         setCourses(coursesData.courses || []);
@@ -114,6 +135,9 @@ export default function TasksPage() {
       }
     } catch (error) {
       console.error("Gagal sinkronisasi data dari Classroom:", error);
+      setSyncErrorMessage(
+        `Tidak dapat terhubung ke server (${API_BASE_URL}). Pastikan backend aktif dan CORS mengizinkan origin frontend.`
+      );
     } finally {
       setIsLoadingTasks(false);
     }
@@ -212,12 +236,22 @@ export default function TasksPage() {
           </div>
         )}
 
+        {/* PESAN ERROR SINKRONISASI */}
+        {syncErrorMessage && (
+          <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-xs text-rose-300">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{syncErrorMessage}</span>
+          </div>
+        )}
+
         {/* NOTIFIKASI STATUS KONEKSI CLASSROOM */}
         {hasAuthError ? (
           <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-amber-300">
             <div className="flex items-center gap-2.5">
               <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
-              <span>Sesi Google Classroom Anda telah kedaluwarsa atau belum terhubung. Silakan login kembali.</span>
+              <span>
+                Sesi Google Classroom Anda telah kedaluwarsa atau belum terhubung. Silakan login kembali.
+              </span>
             </div>
             <button
               onClick={handleLoginGoogle}
@@ -249,7 +283,9 @@ export default function TasksPage() {
           <div className="p-5 bg-[#12121a]/90 border border-white/10 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-300">
             <div>
               <p className="font-bold text-sm text-white">Hubungkan dengan Google Classroom</p>
-              <p className="text-slate-400 mt-0.5">Sinkronkan daftar kelas, materi, dan tugas mengajar Anda secara real-time.</p>
+              <p className="text-slate-400 mt-0.5">
+                Sinkronkan daftar kelas, materi, dan tugas mengajar Anda secara real-time.
+              </p>
             </div>
             <button
               onClick={handleLoginGoogle}
