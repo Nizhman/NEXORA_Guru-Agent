@@ -1,88 +1,144 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useState, useEffect, useCallback, type ComponentProps } from "react";
 import Header from "../../components/Header";
+import TaskStats from "@/components/tasks/TaskStats";
+import TaskCard from "@/components/tasks/TaskCard";
+import CreateTaskModal from "../../components/tasks/CreateTaskModal";
+import UnsubmittedModal from "../../components/tasks/UnsubmittedModal";
 import {
+  Plus,
+  Search,
   BookOpen,
-  CheckSquare,
-  Presentation,
-  HelpCircle,
-  GraduationCap,
-  Settings,
-  ArrowUpRight,
-  RefreshCw,
   CheckCircle2,
-  AlertCircle,
-  Clock,
   Users,
-  Sparkles,
   Loader2,
+  RefreshCw,
+  Cpu,
+  LogIn,
+  AlertCircle,
 } from "lucide-react";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 ).replace(/\/+$/, "");
 
-interface DashboardTask {
-  id: string;
-  courseId?: string;
-  title: string;
-  className: string;
-  deadline: string;
-  submittedCount: number;
-  totalStudents: number;
-  status: string;
-}
+type ClassroomTask = Parameters<
+  NonNullable<ComponentProps<typeof CreateTaskModal>["onTaskCreated"]>
+>[0];
 
-interface CourseItem {
+interface CourseOption {
   id: string;
   name: string;
   section?: string;
 }
 
-export default function DashboardPage() {
-  const [tasks, setTasks] = useState<DashboardTask[]>([]);
-  const [courses, setCourses] = useState<CourseItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConfigReady, setIsConfigReady] = useState(false);
+export default function TasksPage() {
+  const [tasks, setTasks] = useState<ClassroomTask[]>([]);
+  const [courses, setCourses] = useState<CourseOption[]>([]);
+  const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>("ALL");
 
-  const loadDashboardData = useCallback(async (token: string | null) => {
-    setIsLoading(true);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isUnsubmittedModalOpen, setIsUnsubmittedModalOpen] = useState(false);
+
+  const [selectedTaskInfo, setSelectedTaskInfo] = useState<{
+    title: string;
+    className: string;
+    deadline: string;
+  }>({ title: "", className: "", deadline: "" });
+
+  const [unsubmittedStudents, setUnsubmittedStudents] = useState<string[]>([]);
+  const [isLoadingUnsubmitted, setIsLoadingUnsubmitted] = useState<string | null>(null);
+  const [isConnectedToClassroom, setIsConnectedToClassroom] = useState(false);
+  const [hasAuthError, setHasAuthError] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [aiMeta, setAiMeta] = useState<{
+    model_used: string;
+    api_key_preview: string;
+  } | null>(null);
+
+  // Ambil konfigurasi aktif dari Settings saat halaman dimuat
+  useEffect(() => {
+    const fetchActiveConfig = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
+        if (res.ok) {
+          const data = await res.json();
+          const rawKey = data.GEMINI_API_KEY || "";
+          const maskedKey =
+            rawKey.length > 10
+              ? `${rawKey.slice(0, 6)}...${rawKey.slice(-4)}`
+              : rawKey
+              ? "***"
+              : "Belum Terpasang";
+
+          setAiMeta({
+            model_used: data.GEMINI_MODEL || "gemini-2.5-flash",
+            api_key_preview: maskedKey,
+          });
+        }
+      } catch {
+        // Abaikan jika backend belum siap
+      }
+    };
+
+    fetchActiveConfig();
+  }, []);
+
+  // Fungsi sinkronisasi data dari Google Classroom
+  const syncClassroomData = useCallback(async (token: string) => {
+    setIsLoadingTasks(true);
+    setHasAuthError(false);
+    setSyncError(null);
+
     try {
-      // 1. Cek status konfigurasi Google di backend
-      const settingsRes = await fetch(`${API_BASE_URL}/api/settings/google`).catch(() => null);
-      if (settingsRes && settingsRes.ok) {
-        const cfg = await settingsRes.json();
-        setIsConfigReady(Boolean(cfg.GOOGLE_CLIENT_ID && cfg.GOOGLE_CLIENT_SECRET));
+      const [coursesRes, courseworkRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/classroom/courses`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/api/classroom/coursework`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+
+      // Jika token kedaluwarsa atau tidak valid (400 / 401)
+      if (
+        coursesRes.status === 400 ||
+        courseworkRes.status === 400 ||
+        coursesRes.status === 401 ||
+        courseworkRes.status === 401
+      ) {
+        localStorage.removeItem("google_access_token");
+        setIsConnectedToClassroom(false);
+        setHasAuthError(true);
+        return;
       }
 
-      // 2. Jika token Google Classroom tersedia, tarik kelas & tugas terbaru
-      if (token) {
-        const [coursesRes, courseworkRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/classroom/courses`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`${API_BASE_URL}/api/classroom/coursework`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
-
-        if (coursesRes.ok) {
-          const cData = await coursesRes.json();
-          setCourses(cData.courses || []);
-        }
-
-        if (courseworkRes.ok) {
-          const tData = await courseworkRes.json();
-          setTasks(tData.tasks || []);
-        }
+      if (coursesRes.ok) {
+        const coursesData = await coursesRes.json().catch(() => ({}));
+        setCourses(coursesData.courses || []);
+      } else {
+        setSyncError(`Gagal memuat daftar kelas (HTTP ${coursesRes.status}).`);
       }
-    } catch (err) {
-      console.error("Gagal memuat ringkasan dashboard:", err);
+
+      if (courseworkRes.ok) {
+        const courseworkData = await courseworkRes.json().catch(() => ({}));
+        setTasks(courseworkData.tasks || []);
+      } else {
+        setSyncError((prev) =>
+          prev
+            ? `${prev} Gagal memuat daftar tugas (HTTP ${courseworkRes.status}).`
+            : `Gagal memuat daftar tugas (HTTP ${courseworkRes.status}).`
+        );
+      }
+    } catch (error) {
+      console.error("Gagal sinkronisasi data dari Classroom:", error);
+      setSyncError("Tidak dapat terhubung ke server backend. Periksa koneksi jaringan atau status server.");
     } finally {
-      setIsLoading(false);
+      setIsLoadingTasks(false);
     }
   }, []);
 
@@ -97,259 +153,272 @@ export default function DashboardPage() {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
 
-      setIsConnected(Boolean(activeToken));
-      loadDashboardData(activeToken);
+      if (activeToken) {
+        setIsConnectedToClassroom(true);
+        syncClassroomData(activeToken);
+      }
     }
-  }, [loadDashboardData]);
+  }, [syncClassroomData]);
 
-  // Hitung metrik statistik ringkas
-  const activeTasksCount = tasks.filter((t) => t.status === "Aktif").length;
-  const scheduledDraftsCount = tasks.filter((t) => t.status === "Draft Terjadwal").length;
-  const totalSubmissions = tasks.reduce((acc, t) => acc + (t.submittedCount || 0), 0);
-  const totalExpected = tasks.reduce((acc, t) => acc + (t.totalStudents || 0), 0);
-  const submissionRate =
-    totalExpected > 0 ? Math.round((totalSubmissions / totalExpected) * 100) : 0;
+  const handleLoginGoogle = () => {
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
+  };
+
+  const handleTaskCreated = (newTask: ClassroomTask) => {
+    setTasks((prev) => [newTask, ...prev]);
+    const token = localStorage.getItem("google_access_token");
+    if (token) {
+      syncClassroomData(token);
+    }
+  };
+
+  const handleCheckUnsubmitted = async (task: ClassroomTask) => {
+    setSelectedTaskInfo({
+      title: task.title,
+      className: task.className,
+      deadline: task.deadline,
+    });
+
+    if (task.courseId && task.courseworkId) {
+      setIsLoadingUnsubmitted(task.id);
+      try {
+        const token = localStorage.getItem("google_access_token");
+        if (!token) {
+          setHasAuthError(true);
+          setIsConnectedToClassroom(false);
+          return;
+        }
+
+        const res = await fetch(
+          `${API_BASE_URL}/api/classroom/unsubmitted/${task.courseId}/${task.courseworkId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (res.status === 401 || res.status === 400) {
+          localStorage.removeItem("google_access_token");
+          setIsConnectedToClassroom(false);
+          setHasAuthError(true);
+          return;
+        }
+
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setUnsubmittedStudents(data.unsubmitted_students || []);
+          setIsUnsubmittedModalOpen(true);
+        }
+      } catch (error) {
+        console.error("Gagal mengambil daftar mahasiswa belum mengumpulkan:", error);
+      } finally {
+        setIsLoadingUnsubmitted(null);
+      }
+    }
+  };
+
+  const filteredTasks = tasks.filter((task) => {
+    const matchesCourse =
+      selectedCourseFilter === "ALL" || task.courseId === selectedCourseFilter;
+    const matchesSearch =
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.className.toLowerCase().includes(searchQuery.toLowerCase());
+
+    return matchesCourse && matchesSearch;
+  });
 
   return (
-    <div className="min-h-screen bg-[#0b0d17] text-slate-100 pb-12">
-      <Header title="Dashboard Utama" />
+    <div className="min-h-screen bg-[#0b0d17] text-slate-100 pb-12 font-sans">
+      <Header title="Manajemen Tugas" />
 
       <main className="px-6 mt-6 max-w-7xl mx-auto space-y-6">
-        {/* BANNER SAMBUTAN & STATUS INTEGRASI */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-950/90 via-[#131526] to-purple-950/80 border border-indigo-500/20 p-6 shadow-xl">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-semibold text-indigo-300">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>NEXORA Workspace</span>
-              </div>
-              <h2 className="text-xl md:text-2xl font-bold text-white">
-                Selamat Datang, Pak Nizar
-              </h2>
-              <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                Kelola penugasan Google Classroom, susun kerangka materi presentasi dari RPS, buat kuis otomatis, dan evaluasi jawaban mahasiswa dalam satu dasbor terpadu.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              {isConnected ? (
-                <div className="px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Classroom Terhubung</span>
-                </div>
-              ) : (
-                <Link
-                  href="/tasks"
-                  className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 transition-all"
-                >
-                  <AlertCircle className="w-4 h-4" />
-                  <span>Hubungkan Google Classroom</span>
-                </Link>
-              )}
-
-              <button
-                onClick={() => loadDashboardData(localStorage.getItem("google_access_token"))}
-                disabled={isLoading}
-                className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-all"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-                <span>Refresh</span>
-              </button>
+        {/* BARIS STATUS KONFIGURASI AI */}
+        {aiMeta && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 bg-[#12121a]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl text-xs">
+            <span className="text-slate-400">Konfigurasi AI Aktif (Settings):</span>
+            <div className="flex items-center gap-2 font-mono text-[11px] px-3 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Model: {aiMeta.model_used}</span>
+              <span className="text-slate-600">|</span>
+              <span>API Key: {aiMeta.api_key_preview}</span>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* 4 KARTU METRIK RINGKASAN */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Kelas Mengajar</span>
-              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
-                <BookOpen className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{courses.length}</p>
-            <p className="text-[11px] text-slate-500 mt-1">Kelas aktif di Google Classroom</p>
+        {/* PESAN ERROR SINKRONISASI */}
+        {syncError && (
+          <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-xs text-rose-300">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{syncError}</span>
           </div>
+        )}
 
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Tugas Aktif</span>
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-                <CheckSquare className="w-4 h-4" />
-              </div>
+        {/* NOTIFIKASI STATUS KONEKSI CLASSROOM */}
+        {hasAuthError ? (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-amber-300">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+              <span>
+                Sesi Google Classroom Anda telah kedaluwarsa atau belum terhubung. Silakan login kembali.
+              </span>
             </div>
-            <p className="text-2xl font-bold text-white">{activeTasksCount}</p>
-            <p className="text-[11px] text-slate-500 mt-1">
-              {scheduledDraftsCount} draft terjadwal menunggu rilis
-            </p>
-          </div>
-
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Rasio Pengumpulan</span>
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                <Users className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{submissionRate}%</p>
-            <p className="text-[11px] text-slate-500 mt-1">
-              {totalSubmissions} dari {totalExpected} pengumpulan tugas
-            </p>
-          </div>
-
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Integrasi Google API</span>
-              <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-                <Settings className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-white">
-              {isConfigReady ? "Terkonfigurasi" : "Perlu Setup"}
-            </p>
-            <Link
-              href="/settings"
-              className="text-[11px] text-indigo-400 hover:text-indigo-300 mt-1 inline-flex items-center gap-1"
+            <button
+              onClick={handleLoginGoogle}
+              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-95 text-white font-semibold rounded-xl flex items-center gap-2 transition-all shadow-md shrink-0"
             >
-              <span>Kelola API Keys</span>
-              <ArrowUpRight className="w-3 h-3" />
-            </Link>
+              <LogIn className="w-4 h-4" />
+              <span>Hubungkan Google Classroom</span>
+            </button>
           </div>
-        </div>
-
-        {/* AKSES CEPAT FITUR AI & AUTOMATION */}
-        <div>
-          <h3 className="text-sm font-bold text-white mb-3">Akses Cepat Asisten AI</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link
-              href="/lesson-plan"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-indigo-500/40 rounded-2xl p-5 transition-all shadow-lg"
+        ) : isConnectedToClassroom ? (
+          <div className="p-3 px-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-between text-xs text-emerald-400">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Google Classroom Terhubung. Menampilkan tugas dari kelas mengajar Anda.</span>
+            </div>
+            <button
+              onClick={() => {
+                const token = localStorage.getItem("google_access_token");
+                if (token) {
+                  syncClassroomData(token);
+                } else {
+                  setIsConnectedToClassroom(false);
+                  setHasAuthError(true);
+                }
+              }}
+              disabled={isLoadingTasks}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-300 transition-all"
             >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  <Presentation className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition-colors" />
-              </div>
-              <h4 className="text-sm font-bold text-white">AI PPT Prompt Generator</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Unggah dokumen RPS/modul atau ketik materi untuk menyusun prompt presentasi siap pakai di NotebookLM.
-              </p>
-            </Link>
-
-            <Link
-              href="/quiz"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-purple-500/40 rounded-2xl p-5 transition-all shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-purple-400 transition-colors" />
-              </div>
-              <h4 className="text-sm font-bold text-white">AI Quiz Generator</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Buat soal pilihan ganda lengkap dengan kunci jawaban, pembahasan, serta ekspor ke Word, PDF, atau Google Forms.
-              </p>
-            </Link>
-
-            <Link
-              href="/grading"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-emerald-500/40 rounded-2xl p-5 transition-all shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  <GraduationCap className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-              </div>
-              <h4 className="text-sm font-bold text-white">AI Grading Assistant</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Evaluasi jawaban esai mahasiswa secara objektif berdasarkan rubrik penilaian yang Anda tentukan.
-              </p>
-            </Link>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTasks ? "animate-spin" : ""}`} />
+              <span>Sinkronkan</span>
+            </button>
           </div>
-        </div>
-
-        {/* DAFTAR TUGAS TERBARU DARI GOOGLE CLASSROOM */}
-        <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-6 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+        ) : (
+          <div className="p-5 bg-[#12121a]/90 border border-white/10 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-300">
             <div>
-              <h3 className="text-sm font-bold text-white">Pantauan Tugas Google Classroom</h3>
-              <p className="text-xs text-slate-400">
-                Ringkasan status pengumpulan tugas terbaru dari kelas Anda
+              <p className="font-bold text-sm text-white">Hubungkan dengan Google Classroom</p>
+              <p className="text-slate-400 mt-0.5">
+                Sinkronkan daftar kelas, materi, dan tugas mengajar Anda secara real-time.
               </p>
             </div>
-            <Link
-              href="/tasks"
-              className="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-all"
+            <button
+              onClick={handleLoginGoogle}
+              className="px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:opacity-95 text-white font-semibold rounded-xl flex items-center gap-2 transition-all shadow-lg shrink-0"
             >
-              <span>Kelola Semua Tugas</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
+              <LogIn className="w-4 h-4" />
+              <span>Login Google Classroom</span>
+            </button>
+          </div>
+        )}
+
+        <TaskStats />
+
+        {/* Action Bar: Pencarian, Filter Kelas, & Tombol Buat Tugas */}
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+            {/* Input Pencarian */}
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari judul tugas..."
+                className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-900 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-violet-500 transition-all"
+              />
+            </div>
+
+            {/* Dropdown Filter Berdasarkan Kelas */}
+            <div className="relative w-full sm:w-64">
+              <BookOpen className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-violet-400 pointer-events-none" />
+              <select
+                value={selectedCourseFilter}
+                onChange={(e) => setSelectedCourseFilter(e.target.value)}
+                className="w-full pl-10 pr-8 py-2.5 text-xs bg-slate-900 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-violet-500 transition-all cursor-pointer appearance-none"
+              >
+                <option value="ALL">Semua Kelas ({tasks.length})</option>
+                {courses.map((course) => {
+                  const countInCourse = tasks.filter((t) => t.courseId === course.id).length;
+                  return (
+                    <option key={course.id} value={course.id}>
+                      {course.name} {course.section ? `(${course.section})` : ""} — {countInCourse} Tugas
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </div>
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 text-slate-400 gap-2.5">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
-              <span className="text-xs">Menyinkronkan data dari Google Classroom...</span>
-            </div>
-          ) : tasks.length === 0 ? (
-            <div className="text-center py-10 text-xs text-slate-400">
-              {isConnected
-                ? "Belum ada tugas ditemukan di Google Classroom."
-                : "Hubungkan akun Google Classroom di menu Manajemen Tugas untuk melihat pantauan tugas di sini."}
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-800/80">
-              {tasks.slice(0, 5).map((task) => {
-                const percent =
-                  task.totalStudents > 0
-                    ? Math.round((task.submittedCount / task.totalStudents) * 100)
-                    : 0;
-                return (
-                  <div
-                    key={task.id}
-                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
-                            task.status === "Draft Terjadwal"
-                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                          }`}
-                        >
-                          {task.status}
-                        </span>
-                        <span className="text-xs font-medium text-indigo-400">
-                          {task.className}
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-white">{task.title}</p>
-                    </div>
-
-                    <div className="flex items-center gap-5 text-xs">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{task.deadline}</span>
-                      </div>
-                      <div className="text-right min-w-[90px]">
-                        <p className="font-bold text-white">
-                          {task.submittedCount}/{task.totalStudents}
-                        </p>
-                        <p className="text-[10px] text-slate-400">{percent}% terkumpul</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="w-full md:w-auto px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-lg shadow-violet-600/25 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            Buat Tugas Baru
+          </button>
         </div>
+
+        {/* State Loading / Kosong / List Card Tugas */}
+        {isLoadingTasks ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-violet-500 mb-3" />
+            <p className="text-sm">Memuat daftar kelas & tugas dari Google Classroom...</p>
+          </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="text-center py-16 bg-[#0f111a] border border-slate-800/80 rounded-2xl">
+            <p className="text-sm text-slate-400">
+              {isConnectedToClassroom
+                ? "Tidak ada tugas ditemukan untuk kelas atau pencarian ini."
+                : "Hubungkan Google Classroom terlebih dahulu untuk memuat daftar tugas."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex flex-col bg-[#0f111a] border border-slate-800/80 rounded-2xl overflow-hidden shadow-lg"
+              >
+                <div className="flex-1">
+                  <TaskCard task={task} />
+                </div>
+
+                <div className="px-5 py-3 bg-slate-900/60 border-t border-slate-800/80 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => handleCheckUnsubmitted(task)}
+                    disabled={isLoadingUnsubmitted === task.id}
+                    className="w-full py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 text-amber-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                  >
+                    {isLoadingUnsubmitted === task.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Users className="w-3.5 h-3.5" />
+                    )}
+                    <span>Lihat Belum Mengumpulkan</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
+
+      <CreateTaskModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onTaskCreated={handleTaskCreated}
+      />
+
+      <UnsubmittedModal
+        isOpen={isUnsubmittedModalOpen}
+        onClose={() => setIsUnsubmittedModalOpen(false)}
+        taskTitle={selectedTaskInfo.title}
+        className={selectedTaskInfo.className}
+        deadline={selectedTaskInfo.deadline}
+        unsubmittedStudents={unsubmittedStudents}
+      />
     </div>
   );
 }
