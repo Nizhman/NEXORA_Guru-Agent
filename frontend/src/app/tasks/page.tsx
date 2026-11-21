@@ -8,6 +8,10 @@ import CreateTaskModal from "../../components/tasks/CreateTaskModal";
 import UnsubmittedModal from "../../components/tasks/UnsubmittedModal";
 import { Plus, Search, BookOpen, CheckCircle2, Users, Loader2, RefreshCw, Cpu, LogIn, AlertCircle } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 type ClassroomTask = Parameters<
   NonNullable<ComponentProps<typeof CreateTaskModal>["onTaskCreated"]>
 >[0];
@@ -48,7 +52,7 @@ export default function TasksPage() {
   useEffect(() => {
     const fetchActiveConfig = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/settings/google");
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
         if (res.ok) {
           const data = await res.json();
           const rawKey = data.GEMINI_API_KEY || "";
@@ -64,7 +68,7 @@ export default function TasksPage() {
             api_key_preview: maskedKey,
           });
         }
-      } catch (err) {
+      } catch {
         // Abaikan jika backend belum siap
       }
     };
@@ -78,16 +82,21 @@ export default function TasksPage() {
     setHasAuthError(false);
     try {
       const [coursesRes, courseworkRes] = await Promise.all([
-        fetch("http://localhost:8000/api/classroom/courses", {
+        fetch(`${API_BASE_URL}/api/classroom/courses`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch("http://localhost:8000/api/classroom/coursework", {
+        fetch(`${API_BASE_URL}/api/classroom/coursework`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
 
       // Jika token kedaluwarsa atau tidak valid (400 / 401)
-      if (coursesRes.status === 400 || courseworkRes.status === 400 || coursesRes.status === 401 || courseworkRes.status === 401) {
+      if (
+        coursesRes.status === 400 ||
+        courseworkRes.status === 400 ||
+        coursesRes.status === 401 ||
+        courseworkRes.status === 401
+      ) {
         localStorage.removeItem("google_access_token");
         setIsConnectedToClassroom(false);
         setHasAuthError(true);
@@ -130,7 +139,7 @@ export default function TasksPage() {
   }, [syncClassroomData]);
 
   const handleLoginGoogle = () => {
-    window.location.href = "http://localhost:8000/api/auth/google";
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
   };
 
   const handleTaskCreated = (newTask: ClassroomTask) => {
@@ -155,7 +164,7 @@ export default function TasksPage() {
         if (!token) throw new Error("Token OAuth tidak ditemukan.");
 
         const res = await fetch(
-          `http://localhost:8000/api/classroom/unsubmitted/${task.courseId}/${task.courseworkId}`,
+          `${API_BASE_URL}/api/classroom/unsubmitted/${task.courseId}/${task.courseworkId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
