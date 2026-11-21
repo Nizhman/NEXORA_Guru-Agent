@@ -1,38 +1,18 @@
-
 import importlib
+import os
 import sys
 from pathlib import Path
 
-import gradio as gr
+# Nonaktifkan Gradio SSR (Node.js server) yang memicu error "Invalid port: '7862gradio_api...'"
+os.environ["GRADIO_SSR_MODE"] = "false"
 
-# Menambahkan root project ke Python path
-ROOT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT_DIR))
+gr = importlib.import_module("gradio")
 
-# Import FastAPI application
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 fastapi_app = importlib.import_module("app.main").app
 
-# Membuat tampilan Gradio
 with gr.Blocks(title="NEXORA Guru Agent API") as demo:
-    gr.Markdown("# NEXORA Guru Agent")
-    gr.Markdown(
-        "Backend API NEXORA Guru Agent berhasil dijalankan."
-    )
-    gr.Markdown(
-        "FastAPI backend aktif melalui Hugging Face Spaces."
-    )
+    gr.Markdown("### NEXORA Guru Agent Backend is Running")
+    gr.Markdown("FastAPI backend aktif di dalam Gradio Space.")
 
-# Menggabungkan FastAPI dan Gradio
-app = gr.mount_gradio_app(
-    fastapi_app,
-    demo,
-    path="/"
-)
-
-# Menjalankan aplikasi
-if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        show_error=True
-    )
+app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
