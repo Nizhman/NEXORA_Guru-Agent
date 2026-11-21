@@ -52,7 +52,7 @@ export default function TasksPage() {
   const [isLoadingUnsubmitted, setIsLoadingUnsubmitted] = useState<string | null>(null);
   const [isConnectedToClassroom, setIsConnectedToClassroom] = useState(false);
   const [hasAuthError, setHasAuthError] = useState(false);
-  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   const [aiMeta, setAiMeta] = useState<{
@@ -92,7 +92,7 @@ export default function TasksPage() {
   const syncClassroomData = useCallback(async (token: string) => {
     setIsLoadingTasks(true);
     setHasAuthError(false);
-    setSyncErrorMessage(null);
+    setSyncError(null);
 
     try {
       const [coursesRes, courseworkRes] = await Promise.all([
@@ -117,27 +117,26 @@ export default function TasksPage() {
         return;
       }
 
-      if (!coursesRes.ok || !courseworkRes.ok) {
-        const failedStatus = !coursesRes.ok ? coursesRes.status : courseworkRes.status;
-        setSyncErrorMessage(
-          `Gagal memuat data Classroom (HTTP ${failedStatus}). Periksa koneksi atau konfigurasi backend.`
-        );
-      }
-
       if (coursesRes.ok) {
         const coursesData = await coursesRes.json().catch(() => ({}));
         setCourses(coursesData.courses || []);
+      } else {
+        setSyncError(`Gagal memuat daftar kelas (HTTP ${coursesRes.status}).`);
       }
 
       if (courseworkRes.ok) {
         const courseworkData = await courseworkRes.json().catch(() => ({}));
         setTasks(courseworkData.tasks || []);
+      } else {
+        setSyncError((prev) =>
+          prev
+            ? `${prev} Gagal memuat daftar tugas (HTTP ${courseworkRes.status}).`
+            : `Gagal memuat daftar tugas (HTTP ${courseworkRes.status}).`
+        );
       }
     } catch (error) {
       console.error("Gagal sinkronisasi data dari Classroom:", error);
-      setSyncErrorMessage(
-        `Tidak dapat terhubung ke server (${API_BASE_URL}). Pastikan backend aktif dan CORS mengizinkan origin frontend.`
-      );
+      setSyncError("Tidak dapat terhubung ke server backend. Periksa koneksi jaringan atau status server.");
     } finally {
       setIsLoadingTasks(false);
     }
@@ -184,7 +183,11 @@ export default function TasksPage() {
       setIsLoadingUnsubmitted(task.id);
       try {
         const token = localStorage.getItem("google_access_token");
-        if (!token) throw new Error("Token OAuth tidak ditemukan.");
+        if (!token) {
+          setHasAuthError(true);
+          setIsConnectedToClassroom(false);
+          return;
+        }
 
         const res = await fetch(
           `${API_BASE_URL}/api/classroom/unsubmitted/${task.courseId}/${task.courseworkId}`,
@@ -194,6 +197,13 @@ export default function TasksPage() {
             },
           }
         );
+
+        if (res.status === 401 || res.status === 400) {
+          localStorage.removeItem("google_access_token");
+          setIsConnectedToClassroom(false);
+          setHasAuthError(true);
+          return;
+        }
 
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -237,10 +247,10 @@ export default function TasksPage() {
         )}
 
         {/* PESAN ERROR SINKRONISASI */}
-        {syncErrorMessage && (
+        {syncError && (
           <div className="p-4 bg-rose-500/10 border border-rose-500/30 rounded-2xl flex items-center gap-2.5 text-xs text-rose-300">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{syncErrorMessage}</span>
+            <span>{syncError}</span>
           </div>
         )}
 
@@ -270,7 +280,12 @@ export default function TasksPage() {
             <button
               onClick={() => {
                 const token = localStorage.getItem("google_access_token");
-                if (token) syncClassroomData(token);
+                if (token) {
+                  syncClassroomData(token);
+                } else {
+                  setIsConnectedToClassroom(false);
+                  setHasAuthError(true);
+                }
               }}
               disabled={isLoadingTasks}
               className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg text-emerald-300 transition-all"
