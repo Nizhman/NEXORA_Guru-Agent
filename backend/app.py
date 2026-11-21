@@ -2,8 +2,8 @@ import importlib
 import os
 import sys
 from pathlib import Path
+import uvicorn
 
-# Nonaktifkan Gradio SSR (Node.js server) yang memicu error "Invalid port: '7862gradio_api...'"
 os.environ["GRADIO_SSR_MODE"] = "false"
 
 gr = importlib.import_module("gradio")
@@ -16,3 +16,6 @@ with gr.Blocks(title="NEXORA Guru Agent API") as demo:
     gr.Markdown("FastAPI backend aktif di dalam Gradio Space.")
 
 app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7860)
