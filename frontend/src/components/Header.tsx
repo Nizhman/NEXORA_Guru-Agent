@@ -2,10 +2,14 @@
 
 import { Bell, Search } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 export default function Header({ title }: { title: string }) {
   const handleConnectClassroom = () => {
-    // Mengarahkan ke endpoint OAuth Google di FastAPI backend
-    window.location.href = "http://localhost:8000/api/auth/google";
+    // Mengarahkan ke endpoint OAuth Google di backend
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
   };
 
   return (
