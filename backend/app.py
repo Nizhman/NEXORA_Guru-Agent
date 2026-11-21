@@ -1,5 +1,13 @@
-import gradio as gr
-from app.main import app as fastapi_app
+import importlib
+import sys
+from pathlib import Path
+
+gr = importlib.import_module("gradio")
+
+# Ensure the backend directory is on the import path when launched from the
+# repository root, so the local ``app`` package can be resolved.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+fastapi_app = importlib.import_module("app.main").app
 
 with gr.Blocks(title="NEXORA Guru Agent API") as demo:
     gr.Markdown("### NEXORA Guru Agent Backend is Running")

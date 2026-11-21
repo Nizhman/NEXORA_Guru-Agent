@@ -8,7 +8,7 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import (
+from .routers import (
     tasks,
     lesson_plans,
     quizzes,
