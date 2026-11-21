@@ -4,6 +4,10 @@ import { useState, useEffect } from "react";
 import { X, BookOpen, Send, FileSpreadsheet, Paperclip, Loader2, Calendar } from "lucide-react";
 import { Task } from "@/types/task";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 interface Course {
   id: string;
   name: string;
@@ -42,7 +46,7 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }: Crea
           const token = localStorage.getItem("google_access_token");
           if (!token) throw new Error("Token OAuth tidak ditemukan.");
 
-          const res = await fetch("http://localhost:8000/api/classroom/courses", {
+          const res = await fetch(`${API_BASE_URL}/api/classroom/courses`, {
             headers: {
               "Authorization": `Bearer ${token}`,
               "Content-Type": "application/json",
@@ -56,7 +60,7 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }: Crea
             setCourses(data.courses);
             setSelectedCourseId(data.courses[0].id);
           }
-        } catch (error) {
+        } catch {
           const mockTeachingCourses: Course[] = [
             { id: "c1", name: "D4 SIKC 48-05 Webpro" },
             { id: "c2", name: "Praktikum Webpro SIKC 49-01" },
@@ -97,7 +101,7 @@ export default function CreateTaskModal({ isOpen, onClose, onTaskCreated }: Crea
       const headers: HeadersInit = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch("http://localhost:8000/api/classroom/post-assignment", {
+      const res = await fetch(`${API_BASE_URL}/api/classroom/post-assignment`, {
         method: "POST",
         headers,
         body: formData,
