@@ -39,13 +39,12 @@ export default function PptPromptGeneratorPage() {
   } | null>(null);
 
   const [form, setForm] = useState({
-    courseName: "Sistem Informasi Kota Cerdas",
-    topic: "Pengenalan Arsitektur REST API & JSON",
-    materials:
-      "- Konsep dasar arsitektur Client-Server dan protokol HTTP\n- Prinsip RESTful API (Stateless, Resource-based URL, HTTP Methods: GET, POST, PUT, DELETE)\n- Struktur format pertukaran data JSON dan perbandingannya dengan XML\n- Studi kasus implementasi API pada layanan publik Smart City",
-    slideCount: "10",
-    audience: "Mahasiswa D4 / S1 Semester 5",
-    style: "Akademik, terstruktur, visual & mudah dipahami",
+    courseName: "",
+    topic: "",
+    materials: "",
+    slideCount: "",
+    audience: "",
+    style: "",
   });
 
   // Ambil konfigurasi aktif dari Settings saat halaman dimuat
@@ -69,7 +68,7 @@ export default function PptPromptGeneratorPage() {
             source: "settings",
           });
         }
-      } catch (err) {
+      } catch {
         // Abaikan jika backend belum siap
       }
     };
@@ -81,6 +80,11 @@ export default function PptPromptGeneratorPage() {
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const parsedSlideCount = Math.max(3, parseInt(form.slideCount || "10", 10) || 10);
+    const audienceLabel = form.audience.trim() || "Mahasiswa / Peserta Kelas";
+    const styleLabel =
+      form.style.trim() || "Akademik, terstruktur, visual & mudah dipahami";
+
     // MODE 1: INPUT MANUAL
     if (inputMode === "manual") {
       setAiExtractedSummary("");
@@ -90,15 +94,15 @@ Buatkan kerangka dan materi slide presentasi (PowerPoint/PPT) yang komprehensif,
 📌 **IDENTITAS PERKULIAHAN**
 - Mata Kuliah: ${form.courseName}
 - Topik Bahasan: ${form.topic}
-- Target Audiens: ${form.audience}
-- Jumlah Slide: Sekitar ${form.slideCount} slide
-- Gaya Bahasa & Visual: ${form.style}
+- Target Audiens: ${audienceLabel}
+- Jumlah Slide: Sekitar ${parsedSlideCount} slide
+- Gaya Bahasa & Visual: ${styleLabel}
 
 📚 **MATERI & BAHAN KAJIAN YANG HARUS DIBAHAS**
 ${form.materials}
 
 📋 **INSTRUKSI STRUKTUR OUTPUT PER SLIDE**
-Untuk setiap slide (dari Slide 1 hingga Slide ${form.slideCount}), tuliskan dengan format berikut:
+Untuk setiap slide (dari Slide 1 hingga Slide ${parsedSlideCount}), tuliskan dengan format berikut:
 1. **Judul Slide** (singkat, jelas, dan menarik)
 2. **Poin-Poin Utama Isi Slide** (gunakan bullet points yang ringkas, padat, tidak berupa paragraf panjang agar mudah dibaca di layar)
 3. **Saran Visual / Diagram / Ilustrasi** (jelaskan grafik, tabel, alur arsitektur, atau ikon yang cocok ditampilkan di slide tersebut)
@@ -107,7 +111,7 @@ Untuk setiap slide (dari Slide 1 hingga Slide ${form.slideCount}), tuliskan deng
 Pastikan alur materi dimulai dari:
 - Slide 1: Judul Topik & Tujuan Pembelajaran (CPMK/Sub-CPMK)
 - Slide 2: Apersepsi / Studi Kasus Pengantar
-- Slide 3 s.d. ${Math.max(3, parseInt(form.slideCount || "10") - 2)}: Pembahasan Inti Bahan Kajian secara bertahap
+- Slide 3 s.d. ${Math.max(3, parsedSlideCount - 2)}: Pembahasan Inti Bahan Kajian secara bertahap
 - 2 Slide Terakhir: Rangkuman / Kesimpulan & Pertanyaan Diskusi / Kuis Singkat untuk Mahasiswa.`;
 
       setGeneratedPrompt(promptTemplate);
@@ -125,9 +129,9 @@ Pastikan alur materi dimulai dari:
       const formData = new FormData();
       formData.append("course_name", form.courseName);
       formData.append("topic", form.topic);
-      formData.append("slide_count", form.slideCount);
-      formData.append("audience", form.audience);
-      formData.append("style", form.style);
+      formData.append("slide_count", String(parsedSlideCount));
+      formData.append("audience", audienceLabel);
+      formData.append("style", styleLabel);
       formData.append("file", uploadedFile);
 
       const res = await fetch(`${API_BASE_URL}/ai/analyze-ppt-material`, {
@@ -151,8 +155,12 @@ Pastikan alur materi dimulai dari:
           source: "executed",
         });
       }
-    } catch (err: any) {
-      alert(err.message || "Terjadi kesalahan saat menganalisis dokumen dengan AI.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Terjadi kesalahan saat menganalisis dokumen dengan AI.";
+      alert(message);
     } finally {
       setIsAnalyzing(false);
     }
@@ -240,7 +248,7 @@ Pastikan alur materi dimulai dari:
                     type="text"
                     value={form.topic}
                     onChange={(e) => setForm({ ...form, topic: e.target.value })}
-                    placeholder="Contoh: Pertemuan 4 - Pengantar Termodinamika"
+                    placeholder="Contoh: Pengenalan Arsitektur REST API & JSON"
                     className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all"
                     required
                   />
@@ -284,7 +292,9 @@ Pastikan alur materi dimulai dari:
                       rows={5}
                       value={form.materials}
                       onChange={(e) => setForm({ ...form, materials: e.target.value })}
-                      placeholder="Tuliskan poin-poin sub-materi, CPMK, atau bahan kajian yang harus ada di dalam slide..."
+                      placeholder={
+                        "- Konsep dasar arsitektur Client-Server dan protokol HTTP\n- Prinsip RESTful API (Stateless, Resource-based URL, HTTP Methods)\n- Struktur format pertukaran data JSON dan perbandingannya dengan XML\n- Studi kasus implementasi API pada layanan publik Smart City"
+                      }
                       className="w-full px-3.5 py-2.5 text-xs leading-relaxed bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all resize-y"
                       required
                     />
@@ -349,9 +359,10 @@ Pastikan alur materi dimulai dari:
                       type="number"
                       min={3}
                       max={40}
+                      placeholder="10"
                       value={form.slideCount}
                       onChange={(e) => setForm({ ...form, slideCount: e.target.value })}
-                      className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white focus:border-indigo-500 outline-none transition-all [color-scheme:dark]"
+                      className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all [color-scheme:dark]"
                       required
                     />
                   </div>
@@ -364,8 +375,8 @@ Pastikan alur materi dimulai dari:
                       type="text"
                       value={form.audience}
                       onChange={(e) => setForm({ ...form, audience: e.target.value })}
-                      placeholder="Contoh: Mahasiswa Semester 3"
-                      className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white focus:border-indigo-500 outline-none transition-all"
+                      placeholder="Contoh: Mahasiswa D4 / S1 Semester 5"
+                      className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all"
                       required
                     />
                   </div>
@@ -379,8 +390,8 @@ Pastikan alur materi dimulai dari:
                     type="text"
                     value={form.style}
                     onChange={(e) => setForm({ ...form, style: e.target.value })}
-                    placeholder="Contoh: Interaktif, banyak studi kasus & diagram"
-                    className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white focus:border-indigo-500 outline-none transition-all"
+                    placeholder="Contoh: Akademik, terstruktur, visual & mudah dipahami"
+                    className="w-full px-3.5 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
 

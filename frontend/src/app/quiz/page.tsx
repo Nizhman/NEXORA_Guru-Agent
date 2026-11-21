@@ -18,10 +18,19 @@ const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 ).replace(/\/+$/, "");
 
+interface QuizQuestion {
+  id?: string | number;
+  question: string;
+  options?: string[];
+  answer: string;
+  explanation?: string;
+  error?: string;
+}
+
 export default function QuizGeneratorPage() {
   const [loading, setLoading] = useState(false);
   const [exportingGForm, setExportingGForm] = useState(false);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [aiMeta, setAiMeta] = useState<{
     model_used: string;
     api_key_preview: string;
@@ -29,10 +38,10 @@ export default function QuizGeneratorPage() {
   } | null>(null);
 
   // State Form Parameter
-  const [topic, setTopic] = useState("Dasar-dasar Pemrograman Python");
-  const [subject, setSubject] = useState("Pemrograman Web & Perangkat Bergerak");
-  const [grade, setGrade] = useState("Kelas XI - SMK");
-  const [count, setCount] = useState("5");
+  const [topic, setTopic] = useState("");
+  const [subject, setSubject] = useState("");
+  const [grade, setGrade] = useState("");
+  const [count, setCount] = useState("");
 
   // Ambil konfigurasi aktif dari Settings saat halaman dimuat
   useEffect(() => {
@@ -55,7 +64,7 @@ export default function QuizGeneratorPage() {
             source: "settings",
           });
         }
-      } catch (err) {
+      } catch {
         // Abaikan jika backend belum siap
       }
     };
@@ -66,7 +75,7 @@ export default function QuizGeneratorPage() {
   // Handler untuk Generate Kuis
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedCount = parseInt(count, 10);
+    const parsedCount = parseInt(count || "5", 10);
 
     if (isNaN(parsedCount) || parsedCount < 1) {
       alert("Masukkan jumlah soal minimal 1.");
@@ -81,6 +90,8 @@ export default function QuizGeneratorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic,
+          subject,
+          grade,
           count: parsedCount,
         }),
       });
@@ -106,7 +117,7 @@ export default function QuizGeneratorPage() {
       } else {
         alert(data.detail || "Gagal menghasilkan kuis dari AI.");
       }
-    } catch (err) {
+    } catch {
       alert("Terjadi kesalahan koneksi ke backend FastAPI.");
     } finally {
       setLoading(false);
@@ -127,11 +138,12 @@ export default function QuizGeneratorPage() {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
+      const safeTopic = (topic || "Kuis_AI").trim().replace(/\s+/g, "_");
       a.href = url;
-      a.download = `Kuis_${topic.replace(/\s+/g, "_")}.docx`;
+      a.download = `Kuis_${safeTopic}.docx`;
       a.click();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       alert("Gagal mengekspor kuis ke Word.");
     }
   };
@@ -150,11 +162,12 @@ export default function QuizGeneratorPage() {
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
+      const safeTopic = (topic || "Kuis_AI").trim().replace(/\s+/g, "_");
       a.href = url;
-      a.download = `Kuis_${topic.replace(/\s+/g, "_")}.pdf`;
+      a.download = `Kuis_${safeTopic}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
+    } catch {
       alert("Gagal mengekspor kuis ke PDF.");
     }
   };
@@ -175,7 +188,7 @@ export default function QuizGeneratorPage() {
       } else {
         alert("Gagal membuat Google Form otomatis.");
       }
-    } catch (err) {
+    } catch {
       alert("Terjadi kesalahan saat menghubungkan ke Google Forms Service.");
     } finally {
       setExportingGForm(false);
@@ -226,7 +239,7 @@ export default function QuizGeneratorPage() {
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     className="w-full px-4 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:bg-white/[0.08] focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
-                    placeholder="Misal: Pemrograman Web dengan React"
+                    placeholder="Contoh: Dasar-dasar Pemrograman Python"
                     required
                   />
                 </div>
@@ -240,6 +253,7 @@ export default function QuizGeneratorPage() {
                     type="text"
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Contoh: Pemrograman Web"
                     className="w-full px-4 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:bg-white/[0.08] focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
                     required
                   />
@@ -254,6 +268,7 @@ export default function QuizGeneratorPage() {
                     type="text"
                     value={grade}
                     onChange={(e) => setGrade(e.target.value)}
+                    placeholder="Contoh: Mahasiswa Semester 5"
                     className="w-full px-4 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:bg-white/[0.08] focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all"
                     required
                   />
@@ -270,7 +285,7 @@ export default function QuizGeneratorPage() {
                     max={50}
                     value={count}
                     onChange={(e) => setCount(e.target.value)}
-                    placeholder="Contoh: 10"
+                    placeholder="Contoh: 5"
                     className="w-full px-4 py-2.5 text-sm bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:bg-white/[0.08] focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all [color-scheme:dark]"
                     required
                   />

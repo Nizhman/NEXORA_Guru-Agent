@@ -9,15 +9,14 @@ import {
   HelpCircle,
   GraduationCap,
   Settings,
-  Sparkles,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Manajemen Tugas", href: "/tasks", icon: CheckSquare },
-  { name: "AI PPT Prompt", href: "/lesson-plan", icon: Presentation },
-  { name: "AI Quiz Generator", href: "/quiz", icon: HelpCircle },
-  { name: "AI Grading Assistant", href: "/grading", icon: GraduationCap },
+  { name: "Buat Presentasi", href: "/lesson-plan", icon: Presentation },
+  { name: "Generator Kuis", href: "/quiz", icon: HelpCircle },
+  { name: "Asisten Penilaian", href: "/grading", icon: GraduationCap },
   { name: "Pengaturan", href: "/settings", icon: Settings },
 ];
 
@@ -27,8 +26,12 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-slate-900 text-white min-h-screen flex flex-col border-r border-slate-800">
       <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-        <div className="p-2 bg-indigo-600 rounded-lg">
-          <Sparkles className="w-6 h-6 text-white" />
+        <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-800 border border-indigo-500/30 shadow-md shrink-0">
+          <img
+            src="/logo-nexora.jpg"
+            alt="Logo NEXORA"
+            className="w-full h-full object-cover"
+          />
         </div>
         <div>
           <h1 className="font-bold text-lg leading-tight">NEXORA</h1>

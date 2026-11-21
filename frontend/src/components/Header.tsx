@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import { Bell } from "lucide-react";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
@@ -19,18 +19,8 @@ export default function Header({ title }: { title: string }) {
         {title}
       </h2>
 
-      {/* Search & Actions */}
+      {/* Actions */}
       <div className="flex items-center gap-3 md:gap-4">
-        {/* Search Bar */}
-        <div className="relative w-48 md:w-72">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cari fitur, tugas, atau kelas..."
-            className="w-full pl-10 pr-4 py-2 text-xs md:text-sm bg-slate-900/90 border border-slate-800 rounded-xl text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all"
-          />
-        </div>
-
         {/* Tombol Hubungkan Google Classroom */}
         <button
           onClick={handleConnectClassroom}
