@@ -100,17 +100,16 @@ export default function TasksPage() {
         localStorage.removeItem("google_access_token");
         setIsConnectedToClassroom(false);
         setHasAuthError(true);
-        setIsLoadingTasks(false);
         return;
       }
 
       if (coursesRes.ok) {
-        const coursesData = await coursesRes.json();
+        const coursesData = await coursesRes.json().catch(() => ({}));
         setCourses(coursesData.courses || []);
       }
 
       if (courseworkRes.ok) {
-        const courseworkData = await courseworkRes.json();
+        const courseworkData = await courseworkRes.json().catch(() => ({}));
         setTasks(courseworkData.tasks || []);
       }
     } catch (error) {
@@ -173,10 +172,9 @@ export default function TasksPage() {
         );
 
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           setUnsubmittedStudents(data.unsubmitted_students || []);
           setIsUnsubmittedModalOpen(true);
-          return;
         }
       } catch (error) {
         console.error("Gagal mengambil daftar mahasiswa belum mengumpulkan:", error);
