@@ -14,6 +14,10 @@ import {
   Cpu,
 } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 export default function QuizGeneratorPage() {
   const [loading, setLoading] = useState(false);
   const [exportingGForm, setExportingGForm] = useState(false);
@@ -34,7 +38,7 @@ export default function QuizGeneratorPage() {
   useEffect(() => {
     const fetchActiveConfig = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/settings/google");
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
         if (res.ok) {
           const data = await res.json();
           const rawKey = data.GEMINI_API_KEY || "";
@@ -72,7 +76,7 @@ export default function QuizGeneratorPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/ai/generate-quiz", {
+      const res = await fetch(`${API_BASE_URL}/ai/generate-quiz`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -112,7 +116,7 @@ export default function QuizGeneratorPage() {
   // Handler Ekspor ke Word (.docx)
   const handleExportDocx = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/ai/quiz/export/docx", {
+      const res = await fetch(`${API_BASE_URL}/ai/quiz/export/docx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, subject, grade, questions }),
@@ -126,6 +130,7 @@ export default function QuizGeneratorPage() {
       a.href = url;
       a.download = `Kuis_${topic.replace(/\s+/g, "_")}.docx`;
       a.click();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       alert("Gagal mengekspor kuis ke Word.");
     }
@@ -134,7 +139,7 @@ export default function QuizGeneratorPage() {
   // Handler Ekspor ke PDF
   const handleExportPdf = async () => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/ai/quiz/export/pdf", {
+      const res = await fetch(`${API_BASE_URL}/ai/quiz/export/pdf`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, subject, grade, questions }),
@@ -148,6 +153,7 @@ export default function QuizGeneratorPage() {
       a.href = url;
       a.download = `Kuis_${topic.replace(/\s+/g, "_")}.pdf`;
       a.click();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       alert("Gagal mengekspor kuis ke PDF.");
     }
@@ -157,7 +163,7 @@ export default function QuizGeneratorPage() {
   const handleExportGoogleForm = async () => {
     setExportingGForm(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/ai/quiz/export/gform", {
+      const res = await fetch(`${API_BASE_URL}/ai/quiz/export/gform`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, subject, grade, questions }),

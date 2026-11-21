@@ -15,13 +15,17 @@ import {
   Cpu,
 } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 export default function GradingAssistantPage() {
   const [mode, setMode] = useState<"evaluate" | "extract">("evaluate");
   const [rubric, setRubric] = useState("");
   const [sheetUrl, setSheetUrl] = useState("");
   const [createNewSheet, setCreateNewSheet] = useState(true);
   const [files, setFiles] = useState<File[]>([]);
-  
+
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [spreadsheetInfo, setSpreadsheetInfo] = useState<any>(null);
@@ -36,7 +40,7 @@ export default function GradingAssistantPage() {
   useEffect(() => {
     const fetchActiveConfig = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/settings/google");
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
         if (res.ok) {
           const data = await res.json();
           const rawKey = data.GEMINI_API_KEY || "";
@@ -89,12 +93,12 @@ export default function GradingAssistantPage() {
       formData.append("rubric", rubric);
       formData.append("create_new_sheet", String(createNewSheet));
       formData.append("sheet_url", sheetUrl);
-      
+
       files.forEach((file) => {
         formData.append("files", file);
       });
 
-      const res = await fetch("http://127.0.0.1:8000/ai/grading/process-batch", {
+      const res = await fetch(`${API_BASE_URL}/ai/grading/process-batch`, {
         method: "POST",
         body: formData,
       });
@@ -312,7 +316,7 @@ export default function GradingAssistantPage() {
                 <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Hasil Analisis & Rekap Nilai
                 </h3>
-                
+
                 {spreadsheetInfo?.spreadsheet_url && (
                   <a
                     href={spreadsheetInfo.spreadsheet_url}

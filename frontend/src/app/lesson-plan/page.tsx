@@ -19,6 +19,10 @@ import {
   Cpu,
 } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
+
 export default function PptPromptGeneratorPage() {
   const [inputMode, setInputMode] = useState<"manual" | "upload">("manual");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -48,7 +52,7 @@ export default function PptPromptGeneratorPage() {
   useEffect(() => {
     const fetchActiveConfig = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/settings/google");
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
         if (res.ok) {
           const data = await res.json();
           const rawKey = data.GEMINI_API_KEY || "";
@@ -126,7 +130,7 @@ Pastikan alur materi dimulai dari:
       formData.append("style", form.style);
       formData.append("file", uploadedFile);
 
-      const res = await fetch("http://127.0.0.1:8000/ai/analyze-ppt-material", {
+      const res = await fetch(`${API_BASE_URL}/ai/analyze-ppt-material`, {
         method: "POST",
         body: formData,
       });

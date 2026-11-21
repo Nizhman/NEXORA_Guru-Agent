@@ -1,351 +1,363 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useState, useEffect } from "react";
 import Header from "../../components/Header";
 import {
-  BookOpen,
-  CheckSquare,
-  Presentation,
-  HelpCircle,
-  GraduationCap,
-  Settings,
-  ArrowUpRight,
-  RefreshCw,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Users,
   Sparkles,
+  FileCheck,
+  ScanText,
+  Upload,
+  FileSpreadsheet,
   Loader2,
+  CheckCircle2,
+  ExternalLink,
+  X,
+  Cpu,
 } from "lucide-react";
 
-interface DashboardTask {
-  id: string;
-  courseId?: string;
-  title: string;
-  className: string;
-  deadline: string;
-  submittedCount: number;
-  totalStudents: number;
-  status: string;
-}
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
-interface CourseItem {
-  id: string;
-  name: string;
-  section?: string;
-}
+export default function GradingAssistantPage() {
+  const [mode, setMode] = useState<"evaluate" | "extract">("evaluate");
+  const [rubric, setRubric] = useState("");
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [createNewSheet, setCreateNewSheet] = useState(true);
+  const [files, setFiles] = useState<File[]>([]);
 
-export default function DashboardPage() {
-  const [tasks, setTasks] = useState<DashboardTask[]>([]);
-  const [courses, setCourses] = useState<CourseItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isConfigReady, setIsConfigReady] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<any[]>([]);
+  const [spreadsheetInfo, setSpreadsheetInfo] = useState<any>(null);
 
-  const loadDashboardData = useCallback(async (token: string | null) => {
-    setIsLoading(true);
-    try {
-      // 1. Cek status konfigurasi Google di backend
-      const settingsRes = await fetch("http://127.0.0.1:8000/api/settings/google").catch(() => null);
-      if (settingsRes && settingsRes.ok) {
-        const cfg = await settingsRes.json();
-        setIsConfigReady(Boolean(cfg.GOOGLE_CLIENT_ID && cfg.GOOGLE_CLIENT_SECRET));
-      }
+  const [aiMeta, setAiMeta] = useState<{
+    model_used: string;
+    api_key_preview: string;
+    source: "settings" | "executed";
+  } | null>(null);
 
-      // 2. Jika token Google Classroom tersedia, tarik kelas & tugas terbaru
-      if (token) {
-        const [coursesRes, courseworkRes] = await Promise.all([
-          fetch("http://localhost:8000/api/classroom/courses", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch("http://localhost:8000/api/classroom/coursework", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+  // Ambil konfigurasi aktif dari Settings saat halaman dimuat
+  useEffect(() => {
+    const fetchActiveConfig = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/settings/google`);
+        if (res.ok) {
+          const data = await res.json();
+          const rawKey = data.GEMINI_API_KEY || "";
+          const maskedKey =
+            rawKey.length > 10
+              ? `${rawKey.slice(0, 6)}...${rawKey.slice(-4)}`
+              : rawKey
+              ? "***"
+              : "Belum Terpasang";
 
-        if (coursesRes.ok) {
-          const cData = await coursesRes.json();
-          setCourses(cData.courses || []);
+          setAiMeta({
+            model_used: data.GEMINI_MODEL || "gemini-2.5-flash",
+            api_key_preview: maskedKey,
+            source: "settings",
+          });
         }
-
-        if (courseworkRes.ok) {
-          const tData = await courseworkRes.json();
-          setTasks(tData.tasks || []);
-        }
+      } catch {
+        // Abaikan jika backend belum siap
       }
-    } catch (err) {
-      console.error("Gagal memuat ringkasan dashboard:", err);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    fetchActiveConfig();
   }, []);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlToken = urlParams.get("access_token");
-      const activeToken = urlToken || localStorage.getItem("google_access_token");
-
-      if (urlToken) {
-        localStorage.setItem("google_access_token", urlToken);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-
-      setIsConnected(Boolean(activeToken));
-      loadDashboardData(activeToken);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selectedFiles = Array.from(e.target.files);
+      setFiles((prev) => [...prev, ...selectedFiles]);
     }
-  }, [loadDashboardData]);
+  };
 
-  // Hitung metrik statistik ringkas
-  const activeTasksCount = tasks.filter((t) => t.status === "Aktif").length;
-  const scheduledDraftsCount = tasks.filter((t) => t.status === "Draft Terjadwal").length;
-  const totalSubmissions = tasks.reduce((acc, t) => acc + (t.submittedCount || 0), 0);
-  const totalExpected = tasks.reduce((acc, t) => acc + (t.totalStudents || 0), 0);
-  const submissionRate =
-    totalExpected > 0 ? Math.round((totalSubmissions / totalExpected) * 100) : 0;
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (files.length === 0) {
+      alert("Harap unggah minimal 1 lembar jawaban siswa.");
+      return;
+    }
+
+    setLoading(true);
+    setResults([]);
+    setSpreadsheetInfo(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("mode", mode);
+      formData.append("rubric", rubric);
+      formData.append("create_new_sheet", String(createNewSheet));
+      formData.append("sheet_url", sheetUrl);
+
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const res = await fetch(`${API_BASE_URL}/ai/grading/process-batch`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.status === "success") {
+        setResults(data.results || []);
+        setSpreadsheetInfo(data.spreadsheet || null);
+
+        if (data.model_used || data.api_key_preview) {
+          setAiMeta({
+            model_used: data.model_used || "-",
+            api_key_preview: data.api_key_preview || "-",
+            source: "executed",
+          });
+        }
+      } else {
+        alert(data.detail || `Gagal memproses penilaian (HTTP ${res.status}).`);
+      }
+    } catch {
+      alert("Terjadi kesalahan koneksi ke backend FastAPI.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-[#0b0d17] text-slate-100 pb-12">
-      <Header title="Dashboard Utama" />
+    <div className="relative flex-1 min-h-screen bg-[#09090b] text-slate-100 overflow-hidden font-sans">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-32 -left-32 w-[30rem] h-[30rem] rounded-full bg-indigo-600/15 blur-[120px]" />
+        <div className="absolute top-1/2 -right-32 w-[28rem] h-[28rem] rounded-full bg-purple-600/10 blur-[120px]" />
+      </div>
 
-      <main className="px-6 mt-6 max-w-7xl mx-auto space-y-6">
-        {/* BANNER SAMBUTAN & STATUS INTEGRASI */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-950/90 via-[#131526] to-purple-950/80 border border-indigo-500/20 p-6 shadow-xl">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-semibold text-indigo-300">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>NEXORA Workspace</span>
+      <div className="relative">
+        <Header title="AI Grading Assistant" />
+
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
+          {/* BARIS STATUS KONFIGURASI AI */}
+          {aiMeta && (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 bg-[#12121a]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-xl text-xs">
+              <span className="text-slate-400">
+                {aiMeta.source === "executed"
+                  ? "✓ Dieksekusi menggunakan konfigurasi aktif:"
+                  : "Konfigurasi Settings terdeteksi:"}
+              </span>
+              <div className="flex items-center gap-2 font-mono text-[11px] px-3 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300">
+                <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Model: {aiMeta.model_used}</span>
+                <span className="text-slate-600">|</span>
+                <span>API Key: {aiMeta.api_key_preview}</span>
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-white">
-                Selamat Datang, Pak Nizar
-              </h2>
-              <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                Kelola penugasan Google Classroom, susun kerangka materi presentasi dari RPS, buat kuis otomatis, dan evaluasi jawaban mahasiswa dalam satu dasbor terpadu.
-              </p>
             </div>
+          )}
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              {isConnected ? (
-                <div className="px-3.5 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Classroom Terhubung</span>
+          {/* Opsi Mode */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div
+              onClick={() => setMode("evaluate")}
+              className={`cursor-pointer relative p-5 rounded-2xl border transition-all ${
+                mode === "evaluate"
+                  ? "bg-indigo-600/10 border-indigo-500/80 ring-2 ring-indigo-500/30 shadow-lg"
+                  : "bg-[#12121a]/80 border-white/10 hover:border-white/20"
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                <div className={`p-3 rounded-xl ${mode === "evaluate" ? "bg-indigo-500/20 text-indigo-400" : "bg-white/5 text-slate-400"}`}>
+                  <FileCheck className="w-6 h-6" />
                 </div>
-              ) : (
-                <Link
-                  href="/tasks"
-                  className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 transition-all"
-                >
-                  <AlertCircle className="w-4 h-4" />
-                  <span>Hubungkan Google Classroom</span>
-                </Link>
-              )}
-
-              <button
-                onClick={() => loadDashboardData(localStorage.getItem("google_access_token"))}
-                disabled={isLoading}
-                className="px-3.5 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition-all"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-                <span>Refresh</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 4 KARTU METRIK RINGKASAN */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Kelas Mengajar</span>
-              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
-                <BookOpen className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{courses.length}</p>
-            <p className="text-[11px] text-slate-500 mt-1">Kelas aktif di Google Classroom</p>
-          </div>
-
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Tugas Aktif</span>
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
-                <CheckSquare className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{activeTasksCount}</p>
-            <p className="text-[11px] text-slate-500 mt-1">
-              {scheduledDraftsCount} draft terjadwal menunggu rilis
-            </p>
-          </div>
-
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Rasio Pengumpulan</span>
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                <Users className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{submissionRate}%</p>
-            <p className="text-[11px] text-slate-500 mt-1">
-              {totalSubmissions} dari {totalExpected} pengumpulan tugas
-            </p>
-          </div>
-
-          <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-5 shadow-lg">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-medium text-slate-400">Integrasi Google API</span>
-              <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-                <Settings className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-lg font-bold text-white">
-              {isConfigReady ? "Terkonfigurasi" : "Perlu Setup"}
-            </p>
-            <Link
-              href="/settings"
-              className="text-[11px] text-indigo-400 hover:text-indigo-300 mt-1 inline-flex items-center gap-1"
-            >
-              <span>Kelola API Keys</span>
-              <ArrowUpRight className="w-3 h-3" />
-            </Link>
-          </div>
-        </div>
-
-        {/* AKSES CEPAT FITUR AI & AUTOMATION */}
-        <div>
-          <h3 className="text-sm font-bold text-white mb-3">Akses Cepat Asisten AI</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link
-              href="/lesson-plan"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-indigo-500/40 rounded-2xl p-5 transition-all shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                  <Presentation className="w-5 h-5" />
+                <div>
+                  <h3 className="font-bold text-sm text-slate-100">Opsi 1: AI Koreksi & Analisis Otomatis</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    AI membaca lembar jawaban siswa, mengevaluasi berdasarkan rubrik, memberikan nilai, dan membuat analisis ringkas.
+                  </p>
                 </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition-colors" />
               </div>
-              <h4 className="text-sm font-bold text-white">AI PPT Prompt Generator</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Unggah dokumen RPS/modul atau ketik materi untuk menyusun prompt presentasi siap pakai di NotebookLM.
-              </p>
-            </Link>
-
-            <Link
-              href="/quiz"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-purple-500/40 rounded-2xl p-5 transition-all shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-                  <HelpCircle className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-purple-400 transition-colors" />
-              </div>
-              <h4 className="text-sm font-bold text-white">AI Quiz Generator</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Buat soal pilihan ganda lengkap dengan kunci jawaban, pembahasan, serta ekspor ke Word, PDF, atau Google Forms.
-              </p>
-            </Link>
-
-            <Link
-              href="/grading"
-              className="group bg-[#0f111a] hover:bg-[#141724] border border-slate-800/80 hover:border-emerald-500/40 rounded-2xl p-5 transition-all shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  <GraduationCap className="w-5 h-5" />
-                </div>
-                <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
-              </div>
-              <h4 className="text-sm font-bold text-white">AI Grading Assistant</h4>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Evaluasi jawaban esai mahasiswa secara objektif berdasarkan rubrik penilaian yang Anda tentukan.
-              </p>
-            </Link>
-          </div>
-        </div>
-
-        {/* DAFTAR TUGAS TERBARU DARI GOOGLE CLASSROOM */}
-        <div className="bg-[#0f111a] border border-slate-800/80 rounded-2xl p-6 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-white">Pantauan Tugas Google Classroom</h3>
-              <p className="text-xs text-slate-400">
-                Ringkasan status pengumpulan tugas terbaru dari kelas Anda
-              </p>
             </div>
-            <Link
-              href="/tasks"
-              className="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5 transition-all"
+
+            <div
+              onClick={() => setMode("extract")}
+              className={`cursor-pointer relative p-5 rounded-2xl border transition-all ${
+                mode === "extract"
+                  ? "bg-purple-600/10 border-purple-500/80 ring-2 ring-purple-500/30 shadow-lg"
+                  : "bg-[#12121a]/80 border-white/10 hover:border-white/20"
+              }`}
             >
-              <span>Kelola Semua Tugas</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
+              <div className="flex items-start gap-4">
+                <div className={`p-3 rounded-xl ${mode === "extract" ? "bg-purple-500/20 text-purple-400" : "bg-white/5 text-slate-400"}`}>
+                  <ScanText className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-100">Opsi 2: Ekstrak Nilai Fisik (OCR Only)</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Kertas ujian sudah dinilai manual. AI membaca Nama & Nilai dari berkas untuk direkap ke Google Sheets.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 text-slate-400 gap-2.5">
-              <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
-              <span className="text-xs">Menyinkronkan data dari Google Classroom...</span>
-            </div>
-          ) : tasks.length === 0 ? (
-            <div className="text-center py-10 text-xs text-slate-400">
-              {isConnected
-                ? "Belum ada tugas ditemukan di Google Classroom."
-                : "Hubungkan akun Google Classroom di menu Manajemen Tugas untuk melihat pantauan tugas di sini."}
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-800/80">
-              {tasks.slice(0, 5).map((task) => {
-                const percent =
-                  task.totalStudents > 0
-                    ? Math.round((task.submittedCount / task.totalStudents) * 100)
-                    : 0;
-                return (
-                  <div
-                    key={task.id}
-                    className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
-                            task.status === "Draft Terjadwal"
-                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              : "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                          }`}
-                        >
-                          {task.status}
-                        </span>
-                        <span className="text-xs font-medium text-indigo-400">
-                          {task.className}
-                        </span>
-                      </div>
-                      <p className="text-sm font-semibold text-white">{task.title}</p>
+          {/* Form Input */}
+          <div className="relative rounded-2xl p-[1px] bg-gradient-to-b from-white/15 via-white/5 to-transparent shadow-2xl">
+            <div className="bg-[#12121a]/80 backdrop-blur-xl p-6 rounded-[calc(1rem-1px)] space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {mode === "evaluate" && (
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Kunci Jawaban & Rubrik Penilaian
+                    </label>
+                    <textarea
+                      value={rubric}
+                      onChange={(e) => setRubric(e.target.value)}
+                      rows={3}
+                      className="w-full p-3 text-xs bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-slate-500 focus:border-indigo-500 outline-none leading-relaxed"
+                      placeholder="Contoh: Soal 1: Fungsi print() (poin 20)..."
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className="p-4 bg-white/[0.02] border border-white/10 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                      <span>Destinasi Google Sheets</span>
                     </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={createNewSheet}
+                        onChange={(e) => setCreateNewSheet(e.target.checked)}
+                        className="rounded border-white/20 bg-white/5 text-emerald-500"
+                      />
+                      <span>Buat Sheet Baru Otomatis</span>
+                    </label>
+                  </div>
 
-                    <div className="flex items-center gap-5 text-xs">
-                      <div className="flex items-center gap-1.5 text-slate-400">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{task.deadline}</span>
-                      </div>
-                      <div className="text-right min-w-[90px]">
-                        <p className="font-bold text-white">
-                          {task.submittedCount}/{task.totalStudents}
-                        </p>
-                        <p className="text-[10px] text-slate-400">{percent}% terkumpul</p>
-                      </div>
+                  {!createNewSheet && (
+                    <input
+                      type="text"
+                      value={sheetUrl}
+                      onChange={(e) => setSheetUrl(e.target.value)}
+                      placeholder="Masukkan URL / ID Google Sheet yang sudah ada"
+                      className="w-full px-3 py-2 text-xs bg-white/[0.04] border border-white/10 rounded-lg text-white outline-none"
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Upload Foto / PDF Lembar Jawaban Siswa
+                  </label>
+                  <div className="relative border-2 border-dashed border-white/15 rounded-2xl p-6 text-center hover:border-indigo-500/50 transition-colors bg-white/[0.01]">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*,application/pdf"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <div className="space-y-2 pointer-events-none">
+                      <Upload className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-xs font-semibold text-slate-300">
+                        Klik atau seret banyak berkas ke sini
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Mendukung format gambar (JPG/PNG) atau PDF multi-halaman
+                      </p>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+
+                {files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {files.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="px-3 py-1.5 text-xs bg-white/[0.05] border border-white/10 rounded-lg flex items-center gap-2 text-slate-300"
+                      >
+                        <span className="truncate max-w-[180px]">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(idx)}
+                          className="text-slate-500 hover:text-rose-400"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading || files.length === 0}
+                  className="w-full py-3 px-4 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:opacity-95 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Menganalisis Berkas & Sinkronisasi Sheets...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" /> Mulai Proses Batch ({files.length} Berkas)
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Hasil Tabel */}
+          {results.length > 0 && (
+            <div className="p-6 bg-[#12121a]/90 border border-white/10 rounded-2xl space-y-4 shadow-xl">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-bold text-sm text-slate-100 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Hasil Analisis & Rekap Nilai
+                </h3>
+
+                {spreadsheetInfo?.spreadsheet_url && (
+                  <a
+                    href={spreadsheetInfo.spreadsheet_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Buka Google Sheets Rekap</span>
+                  </a>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left text-slate-300">
+                  <thead className="bg-white/5 text-slate-200 font-semibold border-b border-white/10">
+                    <tr>
+                      <th className="p-3">No</th>
+                      <th className="p-3">Nama Siswa</th>
+                      <th className="p-3">Nilai</th>
+                      {mode === "evaluate" && <th className="p-3">Analisis / Feedback AI</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {results.map((item, index) => (
+                      <tr key={index} className="hover:bg-white/[0.02]">
+                        <td className="p-3">{index + 1}</td>
+                        <td className="p-3 font-semibold text-white">{item.student_name}</td>
+                        <td className="p-3 font-bold text-emerald-400">{item.score}</td>
+                        {mode === "evaluate" && (
+                          <td className="p-3 text-slate-400 leading-relaxed">{item.feedback}</td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

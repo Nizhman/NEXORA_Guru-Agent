@@ -4,14 +4,16 @@ import { useState } from "react";
 import { FcGoogle } from "react-icons/fc";
 import { Loader2 } from "lucide-react";
 
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+).replace(/\/+$/, "");
+
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleGoogleLogin = () => {
     setIsLoading(true);
-    // Gunakan URL backend dinamis atau fallback ke localhost:8000
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    window.location.href = `${apiBaseUrl}/api/auth/google`;
+    window.location.href = `${API_BASE_URL}/api/auth/google`;
   };
 
   return (
@@ -21,7 +23,7 @@ export default function LoginPage() {
         <p className="text-xs text-slate-400 mb-6">
           Masuk dengan akun Google untuk terhubung ke Google Classroom
         </p>
-        
+
         <button
           onClick={handleGoogleLogin}
           disabled={isLoading}

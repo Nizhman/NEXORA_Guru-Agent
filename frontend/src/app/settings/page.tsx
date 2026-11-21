@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: GoogleConfig = {
   GOOGLE_SHEET_TEMPLATE_ID: "",
   GOOGLE_CLIENT_ID: "",
   GOOGLE_CLIENT_SECRET: "",
-  GOOGLE_REDIRECT_URI: "http://localhost:8000/api/auth/google/callback",
+  GOOGLE_REDIRECT_URI: `${API_BASE_URL}/api/auth/google/callback`,
 };
 
 const AVAILABLE_MODELS = [
@@ -66,7 +66,12 @@ export default function SettingsPage() {
         const res = await fetch(`${API_BASE_URL}/api/settings/google`);
         if (res.ok) {
           const data = await res.json();
-          setConfig((prev) => ({ ...prev, ...data }));
+          setConfig((prev) => ({
+            ...prev,
+            ...data,
+            GOOGLE_REDIRECT_URI:
+              data.GOOGLE_REDIRECT_URI || `${API_BASE_URL}/api/auth/google/callback`,
+          }));
           if (
             data.GEMINI_MODEL &&
             !AVAILABLE_MODELS.some((m) => m.value === data.GEMINI_MODEL)
@@ -74,7 +79,7 @@ export default function SettingsPage() {
             setCustomModelMode(true);
           }
         }
-      } catch (err) {
+      } catch {
         setErrorMessage("Gagal memuat konfigurasi dari server backend.");
       } finally {
         setIsLoading(false);
@@ -102,7 +107,7 @@ export default function SettingsPage() {
         body: JSON.stringify(config),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.detail || "Gagal menyimpan pengaturan.");
       }
@@ -126,7 +131,7 @@ export default function SettingsPage() {
           <div>
             <p className="font-semibold text-white mb-0.5">Konfigurasi Environment Aplikasi</p>
             <p className="text-slate-400 leading-relaxed">
-              Perubahan yang disimpan di halaman ini akan langsung memperbarui variabel lingkungan (<code>.env</code>) backend untuk Gemini AI, Google OAuth, Google Classroom, Google Drive, Google Sheets, dan Apps Script.
+              Perubahan yang disimpan di halaman ini akan memperbarui konfigurasi runtime backend untuk Gemini AI, Google OAuth, Google Classroom, Google Drive, Google Sheets, dan Apps Script. Untuk penyimpanan permanen saat server restart, pastikan nilai utama juga terpasang di Hugging Face Space Secrets.
             </p>
           </div>
         </div>
@@ -283,7 +288,7 @@ export default function SettingsPage() {
                     type="text"
                     value={config.GOOGLE_REDIRECT_URI}
                     onChange={(e) => handleChange("GOOGLE_REDIRECT_URI", e.target.value)}
-                    placeholder="https://teachflow-backend.onrender.com/api/auth/google/callback"
+                    placeholder="https://nizarngoiewg-nexora-guru-agent-api.hf.space/api/auth/google/callback"
                     className="w-full px-3.5 py-2.5 text-xs font-mono bg-slate-900 border border-slate-800 rounded-xl text-white focus:border-violet-500 outline-none transition-all"
                   />
                 </div>
